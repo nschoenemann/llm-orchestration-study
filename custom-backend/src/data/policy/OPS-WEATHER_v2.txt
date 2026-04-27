@@ -1,0 +1,11 @@
+[POLICY_ID: OPS-WEATHER | VERSION: v2 | EFFECTIVE_FROM: 2026-01-01 | REGION: GLOBAL]
+
+RULE P1 (Schwere Wetterbedingungen):
+Bei Gewitter, starkem Sturm oder Schneefall ist eine Eskalation auf Stufe 2 erforderlich und der Duty Manager muss informiert werden.
+
+RULE P2 (Moderate Wetterbedingungen):
+Bei leichtem Regen oder eingeschränkter Sicht muss der Flug überwacht werden, eine Eskalation ist jedoch nicht zwingend erforderlich.
+
+RULE P3 (Sicherheitspriorität):
+Sicherheitsaspekte haben bei allen wetterbedingten Störungen oberste Priorität.
+ssh-keygen -t ed25519 -C "nschoenemann7@gmail.com" -f ~/.ssh/id_ed25519_studies

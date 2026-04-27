@@ -1,16 +1,21 @@
-import 'dotenv/config'   // ← diese Zeile ganz oben hinzufügen
-
-import { OpenAIAdapter }  from './providers/openai.adapter'
-import { ClaudeAdapter }  from './providers/claude.adapter'
-import { GeminiAdapter }  from './providers/gemini.adapter'
+import 'dotenv/config'
+import './tools/flight.tool'                              // Tool registrieren
+import { initRAG }          from './rag/ragEngine'
+import { runConversation }  from './orchestrator/orchestrator'
+import { OpenAIAdapter }    from './providers/openai.adapter'
+import { ClaudeAdapter }    from './providers/claude.adapter'
+import { GeminiAdapter }    from './providers/gemini.adapter'
 import type { UnifiedChatRequest } from './providers/types'
 
-const request: UnifiedChatRequest = {
-    messages: [{ role: 'user', content: 'Antworte nur mit: OK' }],
-    systemPrompt: 'Du bist ein Testassistent.'
-}
+// ── 1. Einfacher Adapter-Test (kein Tool, kein RAG) ──────────────────────────
+async function testAdapters() {
+    console.log('\n═══ 1. ADAPTER TEST ═══')
 
-async function testAll() {
+    const request: UnifiedChatRequest = {
+        messages: [{ role: 'user', content: 'Antworte nur mit: OK' }],
+        systemPrompt: 'Du bist ein Testassistent.'
+    }
+
     const adapters = [
         new OpenAIAdapter(),
         new ClaudeAdapter(),
@@ -19,7 +24,6 @@ async function testAll() {
 
     for (const adapter of adapters) {
         try {
-            console.log(`\nTesting ${adapter.getName()}...`)
             const res = await adapter.chat(request)
             console.log(`✓ ${adapter.getName()}: "${res.content}"`)
         } catch (e) {
@@ -28,4 +32,36 @@ async function testAll() {
     }
 }
 
-testAll()
+// ── 2. Orchestrator-Test (mit Tool + RAG) ────────────────────────────────────
+async function testOrchestrator() {
+    console.log('\n═══ 2. ORCHESTRATOR TEST (Tool + RAG) ═══')
+
+    const providers = ['openai', 'claude', 'gemini']
+    const question  = 'Welche Flüge gibt es von Berlin nach München am 2025-08-01?'
+
+    for (const providerName of providers) {
+        process.env.LLM_PROVIDER = providerName
+        console.log(`\nTesting ${providerName}...`)
+        console.log(`Frage: ${question}`)
+
+        try {
+            const answer = await runConversation(question)
+            console.log(`✓ Antwort: ${answer}`)
+        } catch (e) {
+            console.error(`✗ Fehler:`, e)
+        }
+    }
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+async function main() {
+    console.log('Initializing RAG...')
+    await initRAG()
+
+    await testAdapters()
+    await testOrchestrator()
+
+    console.log('\n═══ DONE ═══')
+}
+
+main()

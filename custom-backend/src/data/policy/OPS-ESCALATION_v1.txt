@@ -1,0 +1,10 @@
+[POLICY_ID: OPS-ESCALATION | VERSION: v1 | EFFECTIVE_FROM: 2025-01-01 | REGION: GLOBAL]
+
+RULE P1 (Eskalationsstufe 1):
+Bei Verspätungen über 30 Minuten ist Stufe 1 anzuwenden.
+
+RULE P2 (Eskalationsstufe 2):
+Bei Verspätungen über 60 Minuten ist Stufe 2 anzuwenden.
+
+RULE P3 (Eskalationsstufe 3):
+Bei Verspätungen über 120 Minuten ist Stufe 3 anzuwenden.
