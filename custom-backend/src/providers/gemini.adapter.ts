@@ -57,10 +57,33 @@ export class GeminiAdapter implements LLMProvider {
     }
 
     private buildHistory(messages: Message[]) {
-        // Gemini hat ein anderes Chat-History-Format
-        return messages.slice(0, -1).map(m => ({
-            role: m.role === 'assistant' ? 'model' : 'user',  // ← "model" statt "assistant"!
-            parts: [{ text: m.content }]
-        }))
+        return messages.slice(0, -1).map(m => {
+            if (m.role === 'tool') {
+                return {
+                    role: 'function' as const,
+                    parts: [{
+                        functionResponse: {
+                            name: m.toolCallId ?? 'unknown',
+                            response: { result: m.content }
+                        }
+                    }]
+                }
+            }
+            if (m.role === 'assistant' && m.toolCalls) {
+                return {
+                    role: 'model' as const,
+                    parts: m.toolCalls.map(tc => ({
+                        functionCall: {
+                            name: tc.name,
+                            args: tc.arguments
+                        }
+                    }))
+                }
+            }
+            return {
+                role: m.role === 'assistant' ? 'model' as const : 'user' as const,
+                parts: [{ text: m.content }]
+            }
+        })
     }
 }
