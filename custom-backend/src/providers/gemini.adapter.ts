@@ -36,8 +36,9 @@ export class GeminiAdapter implements LLMProvider {
         const lastMessage = req.messages[req.messages.length - 1]
         const chat = model.startChat({ history })
         const res  = await chat.sendMessage(lastMessage.content)
-        const part = res.response.candidates?.[0].content.parts[0]
-
+        const candidate = res.response.candidates?.[0]
+        const parts     = candidate?.content?.parts ?? []
+        const part      = parts.find(p => p.functionCall) ?? parts[0]
         if (part?.functionCall) {
             return {
                 content: null,
