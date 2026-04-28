@@ -1,7 +1,0 @@
-[POLICY_ID: OPS-WEATHER | VERSION: v1 | EFFECTIVE_FROM: 2025-01-01 | REGION: GLOBAL]
-
-RULE P1 (Schwere Wetterbedingungen):
-Bei Gewitter oder starkem Sturm ist eine Eskalation auf Stufe 2 erforderlich.
-
-RULE P2 (Sicherheitspriorität):
-Sicherheitsaspekte haben oberste Priorität.
