@@ -1,0 +1,7 @@
+[POLICY_ID: OPS-MISSING | VERSION: v1 | EFFECTIVE_FROM: 2025-01-01 | REGION: GLOBAL]
+
+RULE P1 (Fehlende Daten kennzeichnen):
+Wenn wichtige Daten fehlen, muss dies klar als fehlend gekennzeichnet werden.
+
+RULE P2 (Eingeschränkte Bewertung):
+Wenn zentrale Informationen fehlen, kann keine vollständige Bewertung erfolgen.

@@ -1,0 +1,7 @@
+[POLICY_ID: OPS-CREW | VERSION: v1 | EFFECTIVE_FROM: 2025-01-01 | REGION: EU]
+
+RULE P1 (Maximale Dienstzeit):
+Die Dienstzeit der Crew darf 12 Stunden nicht überschreiten.
+
+RULE P2 (Erhöhte Aufmerksamkeit):
+Sobald die Dienstzeit über 11 Stunden liegt, muss dies beobachtet werden.
