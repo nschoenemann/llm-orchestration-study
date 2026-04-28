@@ -19,7 +19,7 @@ export class OpenAIAdapter implements LLMProvider {
         }))
 
         const res = await client.chat.completions.create({
-            model: 'gpt-4o',
+            model: 'gpt-5.1',
             messages,
             tools: tools?.length ? tools : undefined
         })

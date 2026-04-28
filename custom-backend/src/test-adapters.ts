@@ -37,7 +37,6 @@ async function testOrchestrator() {
     console.log('\n═══ 2. ORCHESTRATOR TEST (Tool + RAG) ═══')
 
     const providers = ['openai', 'claude', 'gemini']
-// test-adapters.ts
     const question = 'Welche Flüge gibt es auf der Route FRA-JFK am 2026-02-25?'
     for (const providerName of providers) {
         process.env.LLM_PROVIDER = providerName

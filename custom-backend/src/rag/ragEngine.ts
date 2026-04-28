@@ -5,49 +5,76 @@ import OpenAI                        from 'openai'
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 interface Chunk {
-    text: string
-    source: string
+    text:      string
+    source:    string
     embedding: number[]
 }
 
 let chunks: Chunk[] = []
 
+// ── Chunking ────────────────────────────────────────────────────────────────
+function splitIntoChunks(text: string, chunkSize = 100, chunkOverlap = 10): string[] {
+    const chunks: string[] = []
+    let start = 0
+
+    while (start < text.length) {
+        const end    = Math.min(start + chunkSize, text.length)
+        const chunk  = text.slice(start, end).trim()
+        if (chunk.length > 0) chunks.push(chunk)
+        start += chunkSize - chunkOverlap   // Overlap berücksichtigen
+    }
+
+    return chunks
+}
+
+// ── Embedding ───────────────────────────────────────────────────────────────
+async function embedBatch(texts: string[]): Promise<number[][]> {
+    const res = await client.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: texts                        // Batch statt sequenziell
+    })
+    return res.data.map(d => d.embedding)
+}
+
+// ── Cosine Similarity ───────────────────────────────────────────────────────
 function cosineSimilarity(a: number[], b: number[]): number {
-    const dot      = a.reduce((sum, val, i) => sum + val * b[i], 0)
-    const magA     = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0))
-    const magB     = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0))
+    const dot  = a.reduce((sum, val, i) => sum + val * b[i], 0)
+    const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0))
+    const magB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0))
     return dot / (magA * magB)
 }
 
-async function embed(text: string): Promise<number[]> {
-    const res = await client.embeddings.create({
-        model: 'text-embedding-3-small',
-        input: text
-    })
-    return res.data[0].embedding
-}
-
+// ── Init ────────────────────────────────────────────────────────────────────
 export async function initRAG() {
-    const policyDir = join(process.cwd(), 'src/data/policy');
-    const files     = readdirSync(policyDir)
-
     console.log('Initializing RAG...')
 
-    for (const file of files) {
-        const text  = readFileSync(join(policyDir, file), 'utf-8')
-        const lines = text.split('\n').filter(l => l.trim().length > 0)
+    const policyDir = join(process.cwd(), 'src/data/policy')
+    const files     = readdirSync(policyDir)
+    const allChunks: { text: string; source: string }[] = []
 
-        for (const line of lines) {
-            const embedding = await embed(line)
-            chunks.push({ text: line, source: file, embedding })
+    for (const file of files) {
+        const text     = readFileSync(join(policyDir, file), 'utf-8')
+        const splitted = splitIntoChunks(text, 500, 50)
+        for (const chunk of splitted) {
+            allChunks.push({ text: chunk, source: file })
         }
     }
+
+    // Batch Embedding – ein API-Call für alle Chunks
+    const embeddings = await embedBatch(allChunks.map(c => c.text))
+
+    chunks = allChunks.map((c, i) => ({
+        text:      c.text,
+        source:    c.source,
+        embedding: embeddings[i]
+    }))
 
     console.log(`RAG ready: ${chunks.length} chunks indexed`)
 }
 
+// ── Retrieve ─────────────────────────────────────────────────────────────────
 export async function retrieve(query: string, topK = 3): Promise<string[]> {
-    const queryEmbedding = await embed(query)
+    const [queryEmbedding] = await embedBatch([query])
 
     return chunks
         .map(c => ({ text: c.text, score: cosineSimilarity(queryEmbedding, c.embedding) }))
