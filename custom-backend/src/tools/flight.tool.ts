@@ -1,11 +1,5 @@
-import { readFileSync } from 'fs'
-import { join }         from 'path'
 import { registerTool } from './toolRegistry'
-import {Flight} from "../types/domain";
-
-const flights: Flight[] = JSON.parse(
-    readFileSync(join(process.cwd(), 'src/data/flights.json'), 'utf-8')
-)
+import {flights} from "../data/flightStore";
 
 registerTool(
     {
