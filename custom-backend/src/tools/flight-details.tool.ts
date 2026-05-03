@@ -1,17 +1,7 @@
 import { readFileSync } from 'fs'
 import { join }         from 'path'
 import { registerTool } from './toolRegistry'
-
-interface Flight {
-    flight_id:       string
-    airline:         string
-    region:          string
-    date:            string
-    route:           string
-    delay_minutes:   number | null
-    crew_duty_hours: number | null
-    weather:         string | null
-}
+import {Flight} from "../types/domain";
 
 const flights: Flight[] = JSON.parse(
     readFileSync(join(process.cwd(), 'src/data/flights.json'), 'utf-8')
