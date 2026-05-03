@@ -1,5 +1,8 @@
 import 'dotenv/config'
-import './tools/flight.tool'                              // Tool registrieren
+import './tools/flight.tool'
+import './tools/routes-by-origin.tool'
+import './tools/routes-by-destination.tool'
+import './tools/flight-details.tool'
 import { initRAG }          from './rag/ragEngine'
 import { runConversation }  from './orchestrator/orchestrator'
 import { OpenAIAdapter }    from './providers/openai.adapter'
