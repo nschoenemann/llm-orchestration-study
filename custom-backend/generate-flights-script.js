@@ -4,7 +4,14 @@ import { join }          from 'path'
 
 const airlines = ['LH', 'AF', 'BA', 'EK', 'QR', 'TK', 'KL', 'IB']
 const regions  = ['EU', 'ME', 'APAC', 'NA']
-const routes   = ['FRA-JFK', 'LHR-DXB', 'DXB-SIN', 'DOH-FRA', 'IST-AMS', 'AMS-JFK']
+const routes = [
+    'FRA-JFK', 'FRA-DXB', 'FRA-SIN', 'FRA-AMS',
+    'LHR-JFK', 'LHR-DXB', 'LHR-SIN',
+    'AMS-JFK', 'AMS-DXB',
+    'DXB-SIN', 'DXB-JFK',
+    'DOH-FRA', 'DOH-AMS',
+    'IST-AMS', 'IST-FRA'
+]
 const weather  = ['Clear', 'Rain', 'Stormy', 'Fog', 'Snow', null]
 const dates    = ['2026-02-25', '2026-03-01', '2026-03-15', '2026-04-01']
 

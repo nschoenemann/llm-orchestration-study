@@ -2,8 +2,9 @@ import { getActiveProvider }               from '../config/providers'
 import { getToolDefinitions, executeTool } from '../tools/toolRegistry'
 import { retrieve }                        from '../rag/ragEngine'
 import type { Message }                    from '../providers/types'
+import {logTool} from "../logger";
 
-const MAX_ITERATIONS = 5  // verhindert infinite loops
+const MAX_ITERATIONS = 15
 
 export async function runConversation(
     userMessage: string,
@@ -44,6 +45,7 @@ Beantworte Fragen präzise basierend auf den verfügbaren Tools und Richtlinien.
 
         for (const toolCall of response.toolCalls) {
             console.log(`Executing tool: ${toolCall.name}`, toolCall.arguments)
+            logTool(`${toolCall.name} – ${JSON.stringify(toolCall.arguments)}`)
             const result = await executeTool(toolCall.name, toolCall.arguments)
 
             messages.push({
