@@ -4,7 +4,7 @@ import {flights} from "../data/flightStore";
 registerTool(
     {
         name: 'get_routes_by_origin',
-        description: 'Returns all available routes departing from a given origin airport',
+        description: 'Returns all available routes departing from a given origin airport. Results include flights across all dates in the database.',
         parameters: {
             type: 'object',
             properties: {

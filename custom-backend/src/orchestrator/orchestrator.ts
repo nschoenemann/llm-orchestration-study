@@ -15,12 +15,16 @@ export async function runConversation(
 
     // RAG: relevante Policy-Chunks laden
     const ragChunks  = await retrieve(userMessage)
-    const systemPrompt = `Du bist ein hilfreicher Flug-Assistent.
+    const systemPrompt = `Du bist ein hilfreicher Flug-Assistent für Mitarbeiter und Kunden.
   
 Relevante Richtlinien:
 ${ragChunks.map(c => `- ${c}`).join('\n')}
 
-Beantworte Fragen präzise basierend auf den verfügbaren Tools und Richtlinien.`
+Beantworte Fragen präzise basierend auf den verfügbaren Tools und Richtlinien.
+
+Wichtig:
+- Wenn kein Datum angegeben wurde und der Kontext nicht klar macht welches Datum relevant ist, suche über ALLE verfügbaren Daten in der Datenbank
+- Frage nicht nach einem fehlenden Datum – versuche stattdessen mit allen verfügbaren Flügen zu arbeiten`
 
     const messages: Message[] = [
         ...history,
