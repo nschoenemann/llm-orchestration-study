@@ -7,6 +7,7 @@ import './tools/flight-details.tool'
 import { initRAG }            from './rag/ragEngine'
 import { runConversation }    from './orchestrator/orchestrator'
 import { logUser, logAssistant, saveSession, setScenario } from './logger'
+import './tools/escalate-flight.tool'
 
 const rl = readline.createInterface({
     input:  process.stdin,
@@ -18,19 +19,16 @@ function ask(question: string): Promise<string> {
 }
 
 async function main() {
-        console.log('Initializing RAG...')
-        await initRAG()
+    console.log('Initializing RAG...')
+    await initRAG()
 
-        // Scenario aus CLI-Argument lesen statt interaktiv fragen
-        const scenario = process.argv[2] ?? 'unknown'
-        setScenario(scenario)
+    const scenario = process.argv[2] ?? 'unknown'
+    setScenario(scenario)
 
-        console.log('\n═══ Flight Assistant CLI ═══')
-        console.log('Provider:', process.env.LLM_PROVIDER ?? 'openai')
-        console.log('Scenario:', scenario)
-        console.log('Type "exit" to quit\n')
-
-        // rest bleibt gleich
+    console.log('\n═══ Flight Assistant CLI ═══')
+    console.log('Provider:', process.env.LLM_PROVIDER ?? 'openai')
+    console.log('Scenario:', scenario)
+    console.log('Type "exit" to quit\n')
 
     while (true) {
         const input = await ask('You: ')
@@ -46,11 +44,24 @@ async function main() {
         logUser(input)
 
         try {
-            const answer = await runConversation(input)
-            logAssistant(answer)
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Request timeout after 30s')), 30000)
+            )
+
+            const answer = await Promise.race([
+                runConversation(input),
+                timeoutPromise
+            ])
+
+            logAssistant(answer as string)
             console.log(`\nAssistant: ${answer}\n`)
         } catch (e) {
-            console.error('Error:', e)
+            if (e instanceof Error && e.message.includes('timeout')) {
+                console.error('\n✗ Timeout – Provider hat nicht geantwortet\n')
+                logAssistant('ERROR: Request timeout after 30s')
+            } else {
+                console.error('Error:', e)
+            }
         }
     }
 }
