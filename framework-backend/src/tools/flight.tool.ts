@@ -2,17 +2,8 @@ import { tool }         from '@langchain/core/tools'
 import { z }            from 'zod'
 import { readFileSync } from 'fs'
 import { join }         from 'path'
-
-interface Flight {
-    flight_id:       string
-    airline:         string
-    region:          string
-    date:            string
-    route:           string
-    delay_minutes:   number | null
-    crew_duty_hours: number | null
-    weather:         string | null
-}
+import { logTool }      from '../logger'
+import type { Flight }  from '../types/domain'
 
 const flights: Flight[] = JSON.parse(
     readFileSync(join(process.cwd(), 'src/data/flights.json'), 'utf-8')
@@ -20,9 +11,10 @@ const flights: Flight[] = JSON.parse(
 
 export const getFlightsTool = tool(
     async ({ route, date }) => {
+        logTool(`get_flights – ${JSON.stringify({ route, date })}`)
         const results = flights.filter(f =>
             f.route?.toUpperCase() === route.toUpperCase() &&
-            f.date === date
+            (date ? f.date === date : true)
         )
         return results.length > 0
             ? JSON.stringify(results)
@@ -30,10 +22,10 @@ export const getFlightsTool = tool(
     },
     {
         name: 'get_flights',
-        description: 'Returns available flights for a given route and date. Route format is ORIGIN-DESTINATION in IATA codes, e.g. FRA-JFK',
+        description: 'Returns available flights for a given route. Optionally filter by date. If no date is provided, returns all flights for that route across all dates in the database.',
         schema: z.object({
             route: z.string().describe('Route in IATA format, e.g. FRA-JFK'),
-            date:  z.string().describe('Date in YYYY-MM-DD format')
+            date:  z.string().optional().describe('Optional date in YYYY-MM-DD format. Omit to search across all dates.')
         })
     }
 )
