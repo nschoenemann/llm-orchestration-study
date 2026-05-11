@@ -2,7 +2,6 @@ import { tool }         from '@langchain/core/tools'
 import { z }            from 'zod'
 import { readFileSync } from 'fs'
 import { join }         from 'path'
-import { logTool }      from '../logger'
 import type { Flight }  from '../types/domain'
 
 const flights: Flight[] = JSON.parse(
@@ -11,7 +10,6 @@ const flights: Flight[] = JSON.parse(
 
 export const getFlightsTool = tool(
     async ({ route, date }) => {
-        logTool(`get_flights – ${JSON.stringify({ route, date })}`)
         const results = flights.filter(f =>
             f.route?.toUpperCase() === route.toUpperCase() &&
             (date ? f.date === date : true)

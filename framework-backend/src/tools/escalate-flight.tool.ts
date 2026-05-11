@@ -1,11 +1,9 @@
 import { tool }     from '@langchain/core/tools'
 import { z }        from 'zod'
 import { retrieve } from '../rag/ragChain'
-import { logTool }  from '../logger'
 
 export const escalateFlightTool = tool(
     async ({ flight_id, reason, delay_minutes, crew_duty_hours }) => {
-        logTool(`escalate_flight – ${JSON.stringify({ flight_id, reason, delay_minutes, crew_duty_hours })}`)
         const query    = `escalation policy ${reason} critical flight`
         const policies = await retrieve(query, 3)
 

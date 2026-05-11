@@ -10,6 +10,7 @@ import { getFlightDetailsTool }        from '../tools/flight-details.tool'
 import { escalateFlightTool }          from '../tools/escalate-flight.tool'
 import { retrieve }                    from '../rag/ragChain'
 import { logTool }                     from '../logger'
+import { LoggingCallbackHandler } from '../callbacks/logging.callback'
 
 const THRESHOLDS = {
     delay_warning:     90,
@@ -118,7 +119,9 @@ Wichtig:
     for (let i = 0; i < MAX_ITERATIONS; i++) {
 
         // 4a. LLM aufrufen
-        const response = await modelWithTools.invoke(messages)
+        const response = await modelWithTools.invoke(messages, {
+            callbacks: [new LoggingCallbackHandler()]
+        })
         messages.push(response)
 
         // 4b. Finale Antwort – kein Tool-Call
@@ -133,7 +136,9 @@ Wichtig:
             const tool = tools.find(t => t.name === toolCall.name)
             if (!tool) throw new Error(`Unknown tool: ${toolCall.name}`)
 
-            const result = await (tool as any).invoke(toolCall.args)
+            const result = await (tool as any).invoke(toolCall.args, {
+                callbacks: [new LoggingCallbackHandler()]
+            })
             const parsed = (() => {
                 try { return JSON.parse(result as string) }
                 catch { return result }

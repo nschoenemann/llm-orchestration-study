@@ -1,11 +1,9 @@
 import { tool }        from '@langchain/core/tools'
 import { z }           from 'zod'
 import { flights }     from '../data/flightStore'
-import { logTool }     from '../logger'
 
 export const getRoutesByDestinationTool = tool(
     async ({ destination }) => {
-        logTool(`get_routes_by_destination – ${JSON.stringify({ destination })}`)
         const routes = [...new Set(
             flights
                 .filter(f => f.route?.toUpperCase().endsWith(destination.toUpperCase()))
