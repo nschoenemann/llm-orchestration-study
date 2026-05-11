@@ -2,24 +2,22 @@ import 'dotenv/config'
 import { ChatOpenAI }                  from '@langchain/openai'
 import { ChatAnthropic }               from '@langchain/anthropic'
 import { ChatGoogleGenerativeAI }      from '@langchain/google-genai'
-import { createReactAgent }            from '@langchain/langgraph/prebuilt'
-import { HumanMessage }   from '@langchain/core/messages'
-import type { BaseChatModel }          from '@langchain/core/language_models/chat_models'
+import {BaseMessage, HumanMessage, SystemMessage, ToolMessage} from '@langchain/core/messages'
 import { getFlightsTool }              from '../tools/flight.tool'
 import { getRoutesByOriginTool }       from '../tools/routes-by-origin.tool'
 import { getRoutesByDestinationTool }  from '../tools/routes-by-destination.tool'
 import { getFlightDetailsTool }        from '../tools/flight-details.tool'
 import { escalateFlightTool }          from '../tools/escalate-flight.tool'
 import { retrieve }                    from '../rag/ragChain'
-import { logTool } from '../logger'
+import { logTool }                     from '../logger'
 
-// Frühwarn-Schwellenwerte
 const THRESHOLDS = {
     delay_warning:     90,
     crew_duty_warning: 11
 }
+type ToolCapableModel = ChatOpenAI | ChatAnthropic | ChatGoogleGenerativeAI
 
-export function getActiveModel(): BaseChatModel {
+export function getActiveModel(): ToolCapableModel {
     const provider = process.env.LLM_PROVIDER ?? 'openai'
     switch (provider) {
         case 'openai':
@@ -87,15 +85,13 @@ function checkEscalationNeeded(toolName: string, result: unknown): {
 }
 
 export async function runAgent(userMessage: string): Promise<string> {
-    const model = getActiveModel()
-    const tools = [
-        getFlightsTool,
-        getRoutesByOriginTool,
-        getRoutesByDestinationTool,
-        getFlightDetailsTool,
-        escalateFlightTool
-    ]
 
+    // ── 1. Provider & Tools vorbereiten ──────────────────────────────────────
+    const tools          = [getFlightsTool, getRoutesByOriginTool, getRoutesByDestinationTool, getFlightDetailsTool, escalateFlightTool]
+    const model          = getActiveModel()
+    const modelWithTools = model.bindTools(tools)
+
+    // ── 2. RAG: relevante Policy-Chunks laden & System-Prompt aufbauen ────────
     const ragChunks    = await retrieve(userMessage)
     const systemPrompt = `Du bist ein hilfreicher Flug-Assistent für Mitarbeiter.
 
@@ -105,59 +101,71 @@ ${ragChunks.map(c => `- ${c}`).join('\n')}
 Beantworte Fragen präzise basierend auf den verfügbaren Tools und Richtlinien.
 
 Wichtig:
-- Wenn kein Datum angegeben wurde, suche über ALLE verfügbaren Daten
-- Frage nicht nach einem fehlenden Datum
+- Wenn kein Datum angegeben wurde und der Kontext nicht klar macht welches Datum relevant ist, suche über ALLE verfügbaren Daten in der Datenbank
+- Frage nicht nach einem fehlenden Datum – versuche stattdessen mit allen verfügbaren Flügen zu arbeiten
 - Das System überwacht intern Frühwarn-Schwellenwerte: Verspätung > ${THRESHOLDS.delay_warning} Min oder Crew-Dienstzeit > ${THRESHOLDS.crew_duty_warning}h
-- Bei Überschreitung dieser Schwellenwerte wird automatisch eine Eskalationsprüfung eingeleitet`
+- Bei Überschreitung dieser Schwellenwerte wird automatisch eine Eskalationsprüfung eingeleitet – die finale Entscheidung basiert auf den geltenden Policy-Richtlinien`
 
-    const agent = createReactAgent({
-        llm:             model,
-        tools,
-        messageModifier: systemPrompt
-    })
+    // ── 3. Message-History initialisieren ─────────────────────────────────────
+    const messages: BaseMessage[] = [
+        new SystemMessage(systemPrompt),
+        new HumanMessage(userMessage)
+    ]
 
-    // Custom Tool-Result-Interceptor für Hybrid-Logik
-    const messages: any[] = [new HumanMessage(userMessage)]
-    const MAX_ITERATIONS  = 15
+    // ── 4. Conversation Loop ──────────────────────────────────────────────────
+    const MAX_ITERATIONS = 15
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
-        const result = await agent.invoke({ messages })
-        const lastMessages = result.messages
 
-        // Letztes Tool-Result prüfen
-        const lastToolMsg = [...lastMessages].reverse().find(m => m._getType() === 'tool')
-        const lastAiMsg   = lastMessages[lastMessages.length - 1]
+        // 4a. LLM aufrufen
+        const response = await modelWithTools.invoke(messages)
+        messages.push(response)
 
-        if (!lastToolMsg || lastAiMsg._getType() !== 'tool') {
-            // Finale Antwort
-            return typeof lastAiMsg.content === 'string'
-                ? lastAiMsg.content
-                : JSON.stringify(lastAiMsg.content)
+        // 4b. Finale Antwort – kein Tool-Call
+        if (!response.tool_calls || response.tool_calls.length === 0) {
+            return typeof response.content === 'string'
+                ? response.content
+                : JSON.stringify(response.content)
         }
 
-        // Escalation Check
-        const toolName   = lastToolMsg.name
-        const toolResult = JSON.parse(lastToolMsg.content)
+        // 4c. Tool-Calls ausführen
+        for (const toolCall of response.tool_calls) {
+            const tool = tools.find(t => t.name === toolCall.name)
+            if (!tool) throw new Error(`Unknown tool: ${toolCall.name}`)
 
-        logTool(`${toolName} – ${JSON.stringify(toolResult)}`)
+            const result = await (tool as any).invoke(toolCall.args)
+            const parsed = (() => {
+                try { return JSON.parse(result as string) }
+                catch { return result }
+            })()
 
-        const escalation = checkEscalationNeeded(toolName, toolResult)
+            // 4d. Hybrid Escalation Check
+            const escalation = checkEscalationNeeded(toolCall.name, parsed)
 
-        if (escalation.needed && escalation.data) {
-            console.log(`Escalation triggered: ${escalation.reason}`)
-            logTool(`ESCALATION TRIGGERED – reason: ${escalation.reason}`)
-
-            const escalationChunks = await retrieve(
-                `escalation policy ${escalation.reason} critical flight`, 3
-            )
-            messages.push(...lastMessages.slice(messages.length))
-            messages.push(new HumanMessage(
-                `SYSTEM: Frühwarn-Schwellenwert überschritten (${escalation.reason}). ` +
-                `Relevante Eskalations-Policies: ${escalationChunks.join(' | ')}`
-            ))
-        } else {
-            messages.push(...lastMessages.slice(messages.length))
+            if (escalation.needed && escalation.data) {
+                // Eskalation: zweiter RAG-Abruf + Kontext ans LLM
+                logTool(`ESCALATION TRIGGERED – reason: ${escalation.reason}`)
+                const escalationChunks = await retrieve(
+                    `escalation policy ${escalation.reason} critical flight`, 3
+                )
+                messages.push(new ToolMessage({
+                    content: JSON.stringify({
+                        ...parsed,
+                        _escalation_required: true,
+                        _escalation_reason:   escalation.reason,
+                        _escalation_policies: escalationChunks
+                    }),
+                    tool_call_id: toolCall.id ?? ''
+                }))
+            } else {
+                // Kein Eskalationsbedarf – Tool-Ergebnis direkt zurück
+                messages.push(new ToolMessage({
+                    content:      JSON.stringify(parsed),
+                    tool_call_id: toolCall.id ?? ''
+                }))
+            }
         }
     }
+
     throw new Error('Max iterations reached')
 }

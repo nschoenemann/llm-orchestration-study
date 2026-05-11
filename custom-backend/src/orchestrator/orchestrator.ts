@@ -56,13 +56,14 @@ function checkEscalationNeeded(toolName: string, result: unknown): {
 }
 
 export async function runConversation(
-    userMessage: string,
-    history: Message[] = []
+    userMessage: string
 ): Promise<string> {
+
+    // ── 1. Provider & Tools vorbereiten ──────────────────────────────────────
     const provider = getActiveProvider()
     const tools    = getToolDefinitions()
 
-    // RAG
+    // ── 2. RAG: relevante Policy-Chunks laden & System-Prompt aufbauen ────────
     const ragChunks    = await retrieve(userMessage)
     const systemPrompt = `Du bist ein hilfreicher Flug-Assistent für Mitarbeiter.
 
@@ -77,18 +78,23 @@ Wichtig:
 - Das System überwacht intern Frühwarn-Schwellenwerte: Verspätung > ${THRESHOLDS.delay_warning} Min oder Crew-Dienstzeit > ${THRESHOLDS.crew_duty_warning}h
 - Bei Überschreitung dieser Schwellenwerte wird automatisch eine Eskalationsprüfung eingeleitet – die finale Entscheidung basiert auf den geltenden Policy-Richtlinien`
 
+    // ── 3. Message-History initialisieren ─────────────────────────────────────
     const messages: Message[] = [
-        ...history,
         { role: 'user', content: userMessage }
     ]
 
+    // ── 4. Conversation Loop ──────────────────────────────────────────────────
     for (let i = 0; i < MAX_ITERATIONS; i++) {
+
+        // 4a. LLM aufrufen via Provider Abstraction Layer
         const response = await provider.chat({ messages, tools, systemPrompt })
 
+        // 4b. Finale Antwort – kein Tool-Call
         if (response.finishReason === 'stop' || !response.toolCalls?.length) {
             return response.content ?? 'Keine Antwort erhalten'
         }
 
+        // 4c. Assistant-Message mit Tool-Calls in History speichern
         const assistantMessage: Message = {
             role:      'assistant',
             content:   response.content ?? '',
@@ -96,28 +102,28 @@ Wichtig:
         }
         messages.push(assistantMessage)
 
+        // 4d. Tool-Calls ausführen
         for (const toolCall of response.toolCalls) {
             console.log(`Executing tool: ${toolCall.name}`, toolCall.arguments)
             logTool(`${toolCall.name} – ${JSON.stringify(toolCall.arguments)}`)
 
             const result = await executeTool(toolCall.name, toolCall.arguments)
 
-            // ── HYBRID CONDITIONAL LOGIC ──────────────────────────────────
+            // 4e. Hybrid Escalation Check
             const escalation = checkEscalationNeeded(toolCall.name, result)
 
             if (escalation.needed && escalation.data) {
+                // Eskalation: zweiter RAG-Abruf + Kontext ans LLM
                 console.log(`Escalation triggered: ${escalation.reason}`, escalation.data)
                 logTool(`ESCALATION TRIGGERED – reason: ${escalation.reason}`)
 
-                // Orchestrator injiziert spezifischen RAG-Kontext für Eskalation
                 const escalationChunks = await retrieve(
                     `escalation policy ${escalation.reason} critical flight`, 3
                 )
 
-                // Ergebnis + Eskalations-Kontext ans LLM
                 messages.push({
-                    role:        'tool',
-                    content:     JSON.stringify({
+                    role:      'tool',
+                    content:   JSON.stringify({
                         ...result as object,
                         _escalation_required: true,
                         _escalation_reason:   escalation.reason,
@@ -126,13 +132,13 @@ Wichtig:
                     toolCallId: toolCall.id
                 })
             } else {
+                // Kein Eskalationsbedarf – Tool-Ergebnis direkt zurück
                 messages.push({
-                    role:       'tool',
-                    content:    JSON.stringify(result),
+                    role:      'tool',
+                    content:   JSON.stringify(result),
                     toolCallId: toolCall.id
                 })
             }
-            // ─────────────────────────────────────────────────────────────
         }
     }
 
