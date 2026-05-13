@@ -8,6 +8,16 @@ import { initRAG }            from './rag/ragEngine'
 import { runConversation }    from './orchestrator/orchestrator'
 import { logUser, logAssistant, saveSession, setScenario } from './logger'
 import './tools/escalate-flight.tool'
+import './tools/flights-by-airline.tool'
+import './tools/flights-by-region.tool'
+import './tools/delay-analysis.tool'
+import './tools/crew-duty-analysis.tool'
+import './tools/airline-stats.tool'
+import './tools/weather-by-region.tool'
+import './tools/weather-impact.tool'
+import './tools/check-cancellation.tool'
+import './tools/cancel-flight.tool'
+import './tools/reassign-crew.tool'
 
 const rl = readline.createInterface({
     input:  process.stdin,
@@ -45,7 +55,7 @@ async function main() {
 
         try {
             const timeoutPromise = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Request timeout after 30s')), 30000)
+                setTimeout(() => reject(new Error('Request timeout after 60s')), 60000)
             )
 
             const answer = await Promise.race([
