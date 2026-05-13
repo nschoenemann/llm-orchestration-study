@@ -1,0 +1,47 @@
+[
+  {
+    "region_id": "EU",
+    "name": "Europe",
+    "airports": [
+      "FRA",
+      "LHR",
+      "AMS",
+      "IST",
+      "CDG",
+      "MUC",
+      "FCO"
+    ]
+  },
+  {
+    "region_id": "NA",
+    "name": "North America",
+    "airports": [
+      "JFK",
+      "LAX",
+      "ORD",
+      "YYZ",
+      "MIA"
+    ]
+  },
+  {
+    "region_id": "ME",
+    "name": "Middle East",
+    "airports": [
+      "DXB",
+      "DOH",
+      "AUH",
+      "RUH"
+    ]
+  },
+  {
+    "region_id": "APAC",
+    "name": "Asia Pacific",
+    "airports": [
+      "SIN",
+      "HKG",
+      "NRT",
+      "SYD",
+      "BKK"
+    ]
+  }
+]
