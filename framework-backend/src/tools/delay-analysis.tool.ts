@@ -34,8 +34,7 @@ export const getDelayAnalysisTool = tool(
     },
     {
         name: 'get_delay_analysis',
-        description: 'Returns delay statistics and a list of critically delayed flights. Optionally filter by airline, region or date.',
-        schema: z.object({
+        description: 'Returns delay statistics and critically delayed flights. Optionally filter by airline or date. If no date is specified, searches across ALL dates in the database. Never invent a date that was not explicitly provided by the user.',        schema: z.object({
             airline:           z.string().optional().describe('Optional airline code e.g. LH'),
             date:              z.string().optional().describe('Optional date in YYYY-MM-DD format'),
             min_delay_minutes: z.number().optional().describe('Optional minimum delay threshold in minutes')

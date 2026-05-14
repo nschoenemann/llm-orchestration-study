@@ -52,7 +52,10 @@ Wichtig:
 - Frage nicht nach einem fehlenden Datum
 - Das System überwacht intern Frühwarn-Schwellenwerte: Verspätung > ${THRESHOLDS.delay_warning} Min oder Crew-Dienstzeit > ${THRESHOLDS.crew_duty_warning}h
 - Bei Überschreitung dieser Schwellenwerte wird automatisch eine Eskalationsprüfung eingeleitet
-- Bei kritischem Wetter über ${THRESHOLDS.cancellation_weather_hours}h wird automatisch eine Cancellation-Prüfung eingeleitet`
+- Bei kritischem Wetter über ${THRESHOLDS.cancellation_weather_hours}h wird automatisch eine Cancellation-Prüfung eingeleitet
+- Wenn nach einer Region gefragt wird ohne Datum, suche über ALLE verfügbaren Daten
+- Für eine vollständige Airline-Analyse immer get_airline_stats, get_crew_duty_analysis UND get_weather_impact kombinieren
+- Erfinde niemals ein Datum das nicht explizit vom Nutzer angegeben wurde`
 
     // ── 3. Graph ausführen ────────────────────────────────────────────────────
     const result = await graph.invoke({

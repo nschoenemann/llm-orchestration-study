@@ -41,8 +41,7 @@ export const getAirlineStatsTool = tool(
     },
     {
         name: 'get_airline_stats',
-        description: 'Returns a performance report for a given airline including delay statistics, crew compliance and flight count.',
-        schema: z.object({
+        description: 'Returns a comprehensive performance report for a given airline including delay statistics, crew compliance and flight count. Use this as a starting point for airline analysis but complement with get_weather_impact for weather analysis.',        schema: z.object({
             airline: z.string().describe('Airline code e.g. LH, AF, BA'),
             date:    z.string().optional().describe('Optional date in YYYY-MM-DD format')
         })
