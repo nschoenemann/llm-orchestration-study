@@ -1,4 +1,4 @@
-import { SystemMessage, ToolMessage } from '@langchain/core/messages'
+import { SystemMessage, ToolMessage, HumanMessage } from '@langchain/core/messages'
 import { retrieve }                   from '../rag/ragChain'
 import { logTool }                    from '../logger'
 import type { AgentState }            from './state'
@@ -99,16 +99,15 @@ export async function handleCancellationNode(state: AgentState): Promise<Partial
     )
 
     return {
-        messages: [new SystemMessage(
-            `SYSTEM: Cancellation-Kriterien erfüllt. ` +
-            `Relevante Policies: ${cancellationChunks.join(' | ')}. ` +
-            `Bitte cancel_flight für betroffene Flüge aufrufen und danach reassign_crew.`
+        messages: [new HumanMessage(
+            `Bitte cancel_flight für die 3 am stärksten betroffenen Flüge aufrufen ` +
+            `(höchste Verspätung + meiste Passagiere). ` +
+            `Danach reassign_crew für jeden gecancelten Flug ausführen. ` +
+            `Relevante Policies: ${cancellationChunks.join(' | ')}`
         )],
         cancellation_needed: false
     }
-}
-
-// ── Router: nach Tool-Ausführung ──────────────────────────────────────────────
+}// ── Router: nach Tool-Ausführung ──────────────────────────────────────────────
 export function routeAfterTools(state: AgentState): string {
     if (state.cancellation_needed)  return ROUTES.CANCEL
     if (state.escalation_triggered) return ROUTES.ESCALATE
