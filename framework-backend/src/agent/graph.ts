@@ -53,7 +53,7 @@ export function buildGraph(model: any) {
         .addNode('call_llm',            (state: AgentState) => callLLMNode(state, modelWithTools))
         .addNode('execute_tools',       (state: AgentState) => executeToolsNode(state, tools))
         .addNode('handle_escalation',   (state: AgentState) => handleEscalationNode(state))
-        .addNode('handle_cancellation', (state: AgentState) => handleCancellationNode(state))
+        .addNode('handle_cancellation', (state: AgentState) => handleCancellationNode(state, tools))
         .addEdge('__start__',           'call_llm')
         .addConditionalEdges('call_llm', routeAfterLLM, {
             [ROUTES.TOOLS]: 'execute_tools',

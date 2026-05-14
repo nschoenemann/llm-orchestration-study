@@ -91,23 +91,58 @@ export async function handleEscalationNode(state: AgentState): Promise<Partial<A
 }
 
 // ── Node: Cancellation ────────────────────────────────────────────────────────
-export async function handleCancellationNode(state: AgentState): Promise<Partial<AgentState>> {
+export async function handleCancellationNode(state: AgentState, tools: any[]): Promise<Partial<AgentState>> {
     logTool(`CANCELLATION NODE – initiating cancellation flow`)
+
+    // Tool-Result aus letztem check_cancellation abrufen
+    const lastToolMsg = [...state.messages].reverse().find(m =>
+        m._getType() === 'tool'
+    ) as any
+
+    const checkResult = JSON.parse(lastToolMsg?.content ?? '{}')
+    const flightsToCancel = checkResult.flights_to_cancel ?? []
 
     const cancellationChunks = await retrieve(
         'cancellation policy critical weather duration flights', 3
     )
 
+    // Alle Flüge sequenziell canceln
+    const cancelTool    = tools.find(t => t.name === 'cancel_flight')
+    const reassignTool  = tools.find(t => t.name === 'reassign_crew')
+    const toolMessages  = []
+
+    for (const flight of flightsToCancel) {
+        const cancelResult = await (cancelTool as any).invoke({
+            flight_id: flight.flight_id,
+            reason:    'critical_weather'
+        })
+        toolMessages.push(new HumanMessage(
+            `Flug ${flight.flight_id} gecancelt: ${cancelResult}`
+        ))
+
+        const reassignResult = await (reassignTool as any).invoke({
+            cancelled_flight_id: flight.flight_id,
+            airline:             flight.airline,
+            date:                flight.date
+        })
+        toolMessages.push(new HumanMessage(
+            `Crew für ${flight.flight_id} neu zugewiesen: ${reassignResult}`
+        ))
+    }
+
     return {
-        messages: [new HumanMessage(
-            `Bitte cancel_flight für die 3 am stärksten betroffenen Flüge aufrufen ` +
-            `(höchste Verspätung + meiste Passagiere). ` +
-            `Danach reassign_crew für jeden gecancelten Flug ausführen. ` +
-            `Relevante Policies: ${cancellationChunks.join(' | ')}`
-        )],
+        messages: [
+            ...toolMessages,
+            new HumanMessage(
+                `Alle ${flightsToCancel.length} betroffenen Flüge wurden gecancelt und Crews neu zugeteilt. ` +
+                `Relevante Policies: ${cancellationChunks.join(' | ')}. ` +
+                `Bitte fasse die durchgeführten Massnahmen zusammen.`
+            )
+        ],
         cancellation_needed: false
     }
-}// ── Router: nach Tool-Ausführung ──────────────────────────────────────────────
+}
+// ── Router: nach Tool-Ausführung ──────────────────────────────────────────────
 export function routeAfterTools(state: AgentState): string {
     if (state.cancellation_needed)  return ROUTES.CANCEL
     if (state.escalation_triggered) return ROUTES.ESCALATE
