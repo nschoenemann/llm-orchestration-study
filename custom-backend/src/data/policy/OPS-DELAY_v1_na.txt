@@ -1,0 +1,10 @@
+[POLICY_ID: OPS-DELAY | VERSION: v1 | EFFECTIVE_FROM: 2025-01-01 | REGION: NA]
+
+RULE P1 (Monitoring von Verspätungen):
+Sobald eine Verspätung mehr als 30 Minuten beträgt, muss der Flug aktiv überwacht werden.
+
+RULE P2 (Dokumentationspflicht):
+Wenn eine Verspätung 90 Minuten überschreitet, muss die Hauptursache dokumentiert werden.
+
+RULE P3 (Kritische Verspätung):
+Bei Verspätungen von mehr als 180 Minuten ist eine Eskalation an das Management erforderlich. Ab diesem Schwellenwert gelten zusätzlich die DOT-Tarmac-Regelungen.

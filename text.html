@@ -1,0 +1,62 @@
+# 5.3.2 RAG-Erweiterung: Austauschbarkeit und Metadaten-gesteuertes Retrieval
+
+In den vorangegangenen Szenarien wurde die RAG-Komponente einmalig konfiguriert und
+über den gesamten Verlauf unverändert genutzt. Embedding-Modell, Chunking-Parameter
+und VectorStore waren fest im Code verankert und nicht ohne strukturelle Anpassungen
+austauschbar. Dies war für die bisherigen Szenarien ausreichend, da der Fokus auf der
+Tool-Integration und der Orchestrierungslogik lag. In Szenario C rückt die RAG-Architektur
+selbst in den Mittelpunkt der Betrachtung.
+
+Die zentrale Frage lautet: Wie aufwändig ist es, einzelne Komponenten der RAG-Pipeline
+auszutauschen – und unterscheidet sich dieser Aufwand zwischen dem Custom Backend
+und dem Framework Backend messbar?
+
+Diese Frage ist unmittelbar relevant für den Anspruch einer provider-agnostischen
+Architektur. Ein System, das seinen LLM-Provider flexibel wechseln kann, aber an ein
+spezifisches Embedding-Modell oder einen bestimmten VectorStore gebunden ist, ist nur
+teilweise provider-agnostisch. Die Entkopplung des Sprachmodells allein reicht nicht aus,
+wenn die RAG-Komponente eigene Provider-Abhängigkeiten einführt.
+
+Um dies systematisch zu untersuchen, werden drei konkrete Tausch-Szenarien definiert,
+die jeweils aus einem realen Betriebskontext motiviert sind:
+
+**Metadaten-gesteuertes Retrieval**
+Die vorhandenen Policy-Dokumente tragen bereits strukturierte Metadaten: eine Policy-ID,
+eine Versionsnummer, ein Gültigkeitsdatum sowie eine regionale Zuordnung. OPS-DELAY
+und OPS-CREW gelten beispielsweise ausschließlich für die Region EU, während Policies
+wie OPS-ESCALATION oder OPS-WEATHER global anwendbar sind. In der bisherigen
+Implementierung werden diese Metadaten beim Retrieval nicht berücksichtigt – alle Policies
+werden unabhängig von ihrer regionalen Gültigkeit in die Ähnlichkeitssuche einbezogen.
+In einem realen Airline-System wäre dies problematisch: Eine Eskalationsentscheidung für
+einen Flug zwischen nordamerikanischen Flughäfen sollte nicht auf Basis einer
+EU-spezifischen Delay-Policy getroffen werden. Das Metadaten-gesteuerte Retrieval
+behebt dieses Problem, indem beim Abruf von Policy-Chunks die Region des betroffenen
+Fluges sowie das aktuelle Datum als Filter übergeben werden. Nur Policies die regional
+passen und zum Zeitpunkt der Anfrage bereits in Kraft sind, werden in die
+Ähnlichkeitssuche einbezogen.
+
+**Embedding-Modell-Tausch**
+Das aktuell verwendete Modell `text-embedding-3-small` von OpenAI ist auf englischsprachige
+Texte optimiert. In einem internationalen Airline-Betrieb liegen operative Richtlinien jedoch
+häufig mehrsprachig vor – insbesondere EU-regulierte Bereiche erfordern Dokumente in
+Deutsch, Englisch und Französisch. Ein mehrsprachiges Embedding-Modell wie Coheres
+`embed-multilingual-v3.0` wäre in diesem Kontext die naheliegende Alternative. Dieser
+Tausch testet gleichzeitig die zentrale Architekturthese: Wie viele Stellen im Code müssen
+angepasst werden, wenn das Embedding-Modell gewechselt wird – und unterscheidet sich
+dieser Aufwand zwischen Custom Backend und Framework Backend?
+
+**VectorStore-Tausch**
+In der aktuellen Implementierung werden alle Embeddings beim Systemstart neu erzeugt
+und im Arbeitsspeicher gehalten. Für ein produktives System das kontinuierlich läuft, ist
+dieser Ansatz ineffizient: Bei jedem Neustart entstehen API-Kosten und Latenz, obwohl
+sich die Policy-Dokumente selten ändern – typischerweise nur bei versionierten Updates
+wie dem Übergang von OPS-DELAY v1 zu v2. Ein persistenter VectorStore wie ChromaDB
+würde die Embeddings einmalig indexieren und bei nachfolgenden Starts direkt laden.
+Dieser Tausch stellt die strukturell tiefgreifendste Änderung dar und ist damit besonders
+aufschlussreich für den Vergleich beider Architekturansätze.
+
+Für jeden dieser drei Tausche wird zunächst die Umsetzung im Custom Backend
+beschrieben und der Änderungsaufwand dokumentiert. Anschließend erfolgt die
+entsprechende Umsetzung im Framework Backend. Der direkte Vergleich – gemessen an
+der Anzahl betroffener Dateien, geänderten Codezeilen und strukturellen Anpassungen –
+bildet die Grundlage für die Bewertung im Rahmen des Bewertungskatalogs.

@@ -1,6 +1,7 @@
 import { getActiveProvider }               from '../config/providers'
 import { getToolDefinitions, executeTool } from '../tools/toolRegistry'
-import { retrieve }                        from '../rag/ragEngine'
+import { retrieve, RetrievalFilter }       from '../rag/ragEngine'
+import { regions }                         from '../data/regionStore'
 import { logTool }                         from '../logger'
 import type { Message }                    from '../providers/types'
 
@@ -34,7 +35,8 @@ function checkEscalationNeeded(toolName: string, result: unknown): {
                 data: {
                     flight_id:       f.flight_id,
                     delay_minutes:   f.delay_minutes,
-                    crew_duty_hours: f.crew_duty_hours
+                    crew_duty_hours: f.crew_duty_hours,
+                    route:           f.route            // NEU: für Metadaten-Filter
                 }
             }
         }
@@ -46,13 +48,22 @@ function checkEscalationNeeded(toolName: string, result: unknown): {
                 data: {
                     flight_id:       f.flight_id,
                     crew_duty_hours: f.crew_duty_hours,
-                    delay_minutes:   f.delay_minutes
+                    delay_minutes:   f.delay_minutes,
+                    route:           f.route            // NEU: für Metadaten-Filter
                 }
             }
         }
     }
 
     return { needed: false }
+}
+
+// Region aus Route ableiten via regionStore
+// Dieselbe Logik wie in flights-by-region.tool.ts und escalate-flight.tool.ts
+function getRegionFromRoute(route: unknown): string | undefined {
+    if (typeof route !== 'string') return undefined
+    const [origin] = route.split('-')
+    return regions.find(r => r.airports.includes(origin))?.region_id
 }
 
 export async function runConversation(
@@ -113,12 +124,21 @@ Wichtig:
             const escalation = checkEscalationNeeded(toolCall.name, result)
 
             if (escalation.needed && escalation.data) {
-                // Eskalation: zweiter RAG-Abruf + Kontext ans LLM
                 console.log(`Escalation triggered: ${escalation.reason}`, escalation.data)
                 logTool(`ESCALATION TRIGGERED – reason: ${escalation.reason}`)
 
+                // Region aus Route ableiten für Metadaten-Filter
+                const region   = getRegionFromRoute(escalation.data.route)
+                const asOfDate = new Date().toISOString().split('T')[0]
+
+                const filter: RetrievalFilter | undefined = region
+                    ? { region, asOfDate }
+                    : undefined
+
                 const escalationChunks = await retrieve(
-                    `escalation policy ${escalation.reason} critical flight`, 3
+                    `escalation policy ${escalation.reason} critical flight`,
+                    3,
+                    filter
                 )
 
                 messages.push({
@@ -132,7 +152,6 @@ Wichtig:
                     toolCallId: toolCall.id
                 })
             } else {
-                // Kein Eskalationsbedarf – Tool-Ergebnis direkt zurück
                 messages.push({
                     role:      'tool',
                     content:   JSON.stringify(result),

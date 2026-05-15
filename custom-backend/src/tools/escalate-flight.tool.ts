@@ -1,43 +1,156 @@
-// src/tools/escalate-flight.tool.ts
-import { registerTool } from './toolRegistry'
-import { retrieve }     from '../rag/ragEngine'
+import { readFileSync, readdirSync } from 'fs'
+import { join }                      from 'path'
+import OpenAI                        from 'openai'
 
-registerTool(
-    {
-        name: 'escalate_flight',
-        description: 'Escalates a flight that meets critical criteria (delay > 120 min, crew duty > 12h). Retrieves relevant escalation policies and returns escalation details. Only call this tool when critical thresholds are met.',
-        parameters: {
-            type: 'object',
-            properties: {
-                flight_id:    { type: 'string', description: 'Flight ID to escalate' },
-                reason:       { type: 'string', description: 'Reason for escalation: delay, crew_duty, or weather' },
-                delay_minutes:{ type: 'number', description: 'Current delay in minutes' },
-                crew_duty_hours: { type: 'number', description: 'Current crew duty hours' }
-            },
-            required: ['flight_id', 'reason']
-        }
-    },
-    async (args) => {
-        const { flight_id, reason, delay_minutes, crew_duty_hours } = args as {
-            flight_id: string
-            reason: string
-            delay_minutes?: number
-            crew_duty_hours?: number
-        }
+// ── RAG Configuration ─────────────────────────────────────────────────────────
+export interface RAGConfig {
+    chunkSize:      number
+    chunkOverlap:   number
+    embeddingModel: string
+}
 
-        // RAG: spezifische Eskalations-Policies laden
-        const query = `escalation policy ${reason} flight delay crew duty`
-        const policies = await retrieve(query, 5)
+export const RAG_DEFAULT: RAGConfig = {
+    chunkSize:      500,
+    chunkOverlap:   50,
+    embeddingModel: 'text-embedding-3-small',
+}
 
-        return {
-            escalation_id:    `ESC-${Date.now()}`,
-            flight_id,
-            reason,
-            delay_minutes:    delay_minutes ?? null,
-            crew_duty_hours:  crew_duty_hours ?? null,
-            status:           'escalated',
-            relevant_policies: policies,
-            timestamp:        new Date().toISOString()
+// ── Metadaten ─────────────────────────────────────────────────────────────────
+// Wird aus dem Policy-Header gelesen:
+// [POLICY_ID: OPS-DELAY | VERSION: v2 | EFFECTIVE_FROM: 2026-01-01 | REGION: EU]
+interface ChunkMetadata {
+    region:        string   // z.B. 'EU', 'GLOBAL'
+    effectiveFrom: string   // ISO-Datum oder ''
+}
+
+// Optionaler Filter der an retrieve() übergeben werden kann
+export interface RetrievalFilter {
+    region:    string   // matched auf exakte Region + GLOBAL
+    asOfDate:  string   // ISO-Datum – schließt noch nicht gültige Policies aus
+}
+
+// ── Interner Zustand ──────────────────────────────────────────────────────────
+interface Chunk {
+    text:      string
+    source:    string
+    metadata:  ChunkMetadata
+    embedding: number[]
+}
+
+let chunks: Chunk[]         = []
+let activeConfig: RAGConfig = RAG_DEFAULT
+let openaiClient: OpenAI
+
+// ── Policy-Header parsen ──────────────────────────────────────────────────────
+function parseHeader(text: string): ChunkMetadata {
+    const match = text.match(/\[POLICY_ID:[^\]]+\]/)
+    if (!match) return { region: 'GLOBAL', effectiveFrom: '' }
+
+    const header        = match[0]
+    const region        = header.match(/REGION:\s*([A-Z]+)/)?.[1]         ?? 'GLOBAL'
+    const effectiveFrom = header.match(/EFFECTIVE_FROM:\s*([\d-]+)/)?.[1] ?? ''
+
+    return { region, effectiveFrom }
+}
+
+// ── Metadaten-Filter ──────────────────────────────────────────────────────────
+function matchesFilter(metadata: ChunkMetadata, filter: RetrievalFilter): boolean {
+    // GLOBAL-Policies gelten immer, regionsspezifische nur wenn Region übereinstimmt
+    const regionMatch =
+        metadata.region === 'GLOBAL' ||
+        metadata.region === filter.region.toUpperCase()
+
+    // Policies die noch nicht in Kraft sind werden ausgeschlossen
+    const dateMatch =
+        metadata.effectiveFrom === '' ||
+        metadata.effectiveFrom <= filter.asOfDate
+
+    return regionMatch && dateMatch
+}
+
+// ── Chunking ──────────────────────────────────────────────────────────────────
+function splitIntoChunks(text: string, chunkSize: number, chunkOverlap: number): string[] {
+    const result: string[] = []
+    let start = 0
+    while (start < text.length) {
+        const end   = Math.min(start + chunkSize, text.length)
+        const chunk = text.slice(start, end).trim()
+        if (chunk.length > 0) result.push(chunk)
+        start += chunkSize - chunkOverlap
+    }
+    return result
+}
+
+// ── Embedding ─────────────────────────────────────────────────────────────────
+async function embedBatch(texts: string[]): Promise<number[][]> {
+    const res = await openaiClient.embeddings.create({
+        model: activeConfig.embeddingModel,
+        input: texts,
+    })
+    return res.data.map(d => d.embedding)
+}
+
+// ── Cosine Similarity ─────────────────────────────────────────────────────────
+function cosineSimilarity(a: number[], b: number[]): number {
+    const dot  = a.reduce((sum, val, i) => sum + val * b[i], 0)
+    const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0))
+    const magB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0))
+    return dot / (magA * magB)
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+export async function initRAG(config: RAGConfig = RAG_DEFAULT) {
+    activeConfig = config
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+    console.log(`Initializing RAG [model: ${config.embeddingModel}, chunkSize: ${config.chunkSize}, overlap: ${config.chunkOverlap}]`)
+
+    const policyDir = join(process.cwd(), 'src/data/policy')
+    const files     = readdirSync(policyDir)
+    const allChunks: { text: string; source: string; metadata: ChunkMetadata }[] = []
+
+    for (const file of files) {
+        const text     = readFileSync(join(policyDir, file), 'utf-8')
+        const metadata = parseHeader(text)
+        const splitted = splitIntoChunks(text, config.chunkSize, config.chunkOverlap)
+        for (const chunk of splitted) {
+            allChunks.push({ text: chunk, source: file, metadata })
         }
     }
-)
+
+    const embeddings = await embedBatch(allChunks.map(c => c.text))
+
+    chunks = allChunks.map((c, i) => ({
+        text:      c.text,
+        source:    c.source,
+        metadata:  c.metadata,
+        embedding: embeddings[i],
+    }))
+
+    console.log(`RAG ready: ${chunks.length} chunks indexed`)
+}
+
+// ── Retrieve ──────────────────────────────────────────────────────────────────
+// filter ist optional – wird er nicht übergeben, verhält sich retrieve()
+// identisch zum Stand aus Szenario A/B
+export async function retrieve(
+    query:   string,
+    topK =   3,
+    filter?: RetrievalFilter
+): Promise<string[]> {
+    const [queryEmbedding] = await embedBatch([query])
+
+    const candidates = filter
+        ? chunks.filter(c => matchesFilter(c.metadata, filter))
+        : chunks
+
+    if (filter) {
+        console.log(`Metadata filter [region: ${filter.region}, asOf: ${filter.asOfDate}]: ${candidates.length}/${chunks.length} chunks`)
+    }
+
+    return candidates
+        .map(c => ({ text: c.text, score: cosineSimilarity(queryEmbedding, c.embedding) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK)
+        .map(c => c.text)
+}
