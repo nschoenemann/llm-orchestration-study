@@ -1,8 +1,9 @@
 import { SystemMessage, ToolMessage, HumanMessage } from '@langchain/core/messages'
-import { retrieve }                   from '../rag/ragChain'
+import { retrieve, RetrievalFilter }  from '../rag/ragChain'
+import { regions }                    from '../data/regionStore'
 import { logTool }                    from '../logger'
 import type { AgentState }            from './state'
-import {THRESHOLDS} from "../config/thresholds";
+import { THRESHOLDS }                 from '../config/thresholds'
 
 export const ROUTES = {
     TOOLS:    'tools',
@@ -11,6 +12,14 @@ export const ROUTES = {
     CANCEL:   'cancel',
     CONTINUE: 'continue'
 } as const
+
+// Region aus Route ableiten via regionStore
+function getRegionFromRoute(route: unknown): string | undefined {
+    if (typeof route !== 'string') return undefined
+    const [origin] = route.split('-')
+    return regions.find(r => r.airports.includes(origin))?.region_id
+}
+
 // ── Node: LLM aufrufen ────────────────────────────────────────────────────────
 export async function callLLMNode(state: AgentState, model: any): Promise<Partial<AgentState>> {
     const response = await model.invoke(state.messages)
@@ -24,6 +33,7 @@ export async function executeToolsNode(state: AgentState, tools: any[]): Promise
 
     let escalation_triggered = false
     let escalation_reason: string | null = null
+    let escalation_route: string | null = null
     let cancellation_needed = false
     const toolMessages = []
 
@@ -44,10 +54,12 @@ export async function executeToolsNode(state: AgentState, tools: any[]): Promise
                 if (typeof f.delay_minutes === 'number' && f.delay_minutes > THRESHOLDS.delay_warning) {
                     escalation_triggered = true
                     escalation_reason    = 'delay'
+                    escalation_route     = f.route ?? null   // für Metadaten-Filter
                 }
                 if (typeof f.crew_duty_hours === 'number' && f.crew_duty_hours > THRESHOLDS.crew_duty_warning) {
                     escalation_triggered = true
                     escalation_reason    = 'crew_duty'
+                    escalation_route     = f.route ?? null   // für Metadaten-Filter
                 }
             }
         }
@@ -68,6 +80,7 @@ export async function executeToolsNode(state: AgentState, tools: any[]): Promise
         messages:             toolMessages,
         escalation_triggered,
         escalation_reason,
+        escalation_route,
         cancellation_needed
     }
 }
@@ -76,8 +89,17 @@ export async function executeToolsNode(state: AgentState, tools: any[]): Promise
 export async function handleEscalationNode(state: AgentState): Promise<Partial<AgentState>> {
     logTool(`ESCALATION TRIGGERED – reason: ${state.escalation_reason}`)
 
+    const region   = getRegionFromRoute(state.escalation_route)
+    const asOfDate = new Date().toISOString().split('T')[0]
+
+    const filter: RetrievalFilter | undefined = region
+        ? { region, asOfDate }
+        : undefined
+
     const escalationChunks = await retrieve(
-        `escalation policy ${state.escalation_reason} critical flight`, 3
+        `escalation policy ${state.escalation_reason} critical flight`,
+        3,
+        filter
     )
 
     return {
@@ -86,7 +108,8 @@ export async function handleEscalationNode(state: AgentState): Promise<Partial<A
             `Relevante Eskalations-Policies: ${escalationChunks.join(' | ')}`
         )],
         escalation_triggered: false,
-        escalation_reason:    null
+        escalation_reason:    null,
+        escalation_route:     null
     }
 }
 
@@ -94,22 +117,20 @@ export async function handleEscalationNode(state: AgentState): Promise<Partial<A
 export async function handleCancellationNode(state: AgentState, tools: any[]): Promise<Partial<AgentState>> {
     logTool(`CANCELLATION NODE – initiating cancellation flow`)
 
-    // Tool-Result aus letztem check_cancellation abrufen
     const lastToolMsg = [...state.messages].reverse().find(m =>
         m._getType() === 'tool'
     ) as any
 
-    const checkResult = JSON.parse(lastToolMsg?.content ?? '{}')
+    const checkResult     = JSON.parse(lastToolMsg?.content ?? '{}')
     const flightsToCancel = checkResult.flights_to_cancel ?? []
 
     const cancellationChunks = await retrieve(
         'cancellation policy critical weather duration flights', 3
     )
 
-    // Alle Flüge sequenziell canceln
-    const cancelTool    = tools.find(t => t.name === 'cancel_flight')
-    const reassignTool  = tools.find(t => t.name === 'reassign_crew')
-    const toolMessages  = []
+    const cancelTool   = tools.find(t => t.name === 'cancel_flight')
+    const reassignTool = tools.find(t => t.name === 'reassign_crew')
+    const toolMessages = []
 
     for (const flight of flightsToCancel) {
         const cancelResult = await (cancelTool as any).invoke({
@@ -142,6 +163,7 @@ export async function handleCancellationNode(state: AgentState, tools: any[]): P
         cancellation_needed: false
     }
 }
+
 // ── Router: nach Tool-Ausführung ──────────────────────────────────────────────
 export function routeAfterTools(state: AgentState): string {
     if (state.cancellation_needed)  return ROUTES.CANCEL
