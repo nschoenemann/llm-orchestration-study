@@ -1,0 +1,10 @@
+[POLICY_ID: OPS-CREW | VERSION: v1 | EFFECTIVE_FROM: 2025-01-01 | REGION: ME]
+
+RULE P1 (Maximale Dienstzeit):
+Die Dienstzeit der Crew darf 12 Stunden nicht überschreiten (ICAO-Empfehlung).
+
+RULE P2 (Begründungspflicht):
+Sobald die Dienstzeit über 11 Stunden liegt, muss dies begründet und dokumentiert werden.
+
+RULE P3 (Compliance-Verstoß):
+Wenn die maximale Dienstzeit überschritten wird, liegt ein Verstoß vor.
