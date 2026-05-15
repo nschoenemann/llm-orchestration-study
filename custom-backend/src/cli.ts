@@ -4,7 +4,7 @@ import './tools/flight.tool'
 import './tools/routes-by-origin.tool'
 import './tools/routes-by-destination.tool'
 import './tools/flight-details.tool'
-import { initRAG }            from './rag/ragEngine'
+import {initRAG, RAG_COHERE, RAG_DEFAULT} from './rag/ragEngine'
 import { runConversation }    from './orchestrator/orchestrator'
 import { logUser, logAssistant, saveSession, setScenario } from './logger'
 import './tools/escalate-flight.tool'
@@ -30,7 +30,7 @@ function ask(question: string): Promise<string> {
 
 async function main() {
     console.log('Initializing RAG...')
-    await initRAG()
+    await initRAG(RAG_COHERE)
 
     const scenario = process.argv[2] ?? 'unknown'
     setScenario(scenario)

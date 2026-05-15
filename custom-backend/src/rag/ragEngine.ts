@@ -1,32 +1,39 @@
 import { readFileSync, readdirSync } from 'fs'
 import { join }                      from 'path'
 import OpenAI                        from 'openai'
+import { CohereClient }              from 'cohere-ai'
 
 // ── RAG Configuration ─────────────────────────────────────────────────────────
 export interface RAGConfig {
-    chunkSize:      number
-    chunkOverlap:   number
-    embeddingModel: string
+    chunkSize:         number
+    chunkOverlap:      number
+    embeddingModel:    string
+    embeddingProvider: 'openai' | 'cohere'
 }
 
 export const RAG_DEFAULT: RAGConfig = {
-    chunkSize:      500,
-    chunkOverlap:   50,
-    embeddingModel: 'text-embedding-3-small',
+    chunkSize:         500,
+    chunkOverlap:      50,
+    embeddingModel:    'text-embedding-3-small',
+    embeddingProvider: 'openai',
+}
+
+export const RAG_COHERE: RAGConfig = {
+    chunkSize:         500,
+    chunkOverlap:      50,
+    embeddingModel:    'embed-multilingual-v3.0',
+    embeddingProvider: 'cohere',
 }
 
 // ── Metadaten ─────────────────────────────────────────────────────────────────
-// Wird aus dem Policy-Header gelesen:
-// [POLICY_ID: OPS-DELAY | VERSION: v2 | EFFECTIVE_FROM: 2026-01-01 | REGION: EU]
-// [POLICY_ID: OPS-DELAY | VERSION: v3 | EFFECTIVE_FROM: 2025-01-01 | REGION: ME, EU]
 interface ChunkMetadata {
-    regions:       string[]  // z.B. ['EU'], ['ME', 'EU'], ['GLOBAL']
-    effectiveFrom: string    // ISO-Datum oder ''
+    regions:       string[]
+    effectiveFrom: string
 }
 
 export interface RetrievalFilter {
-    region:    string   // z.B. 'EU' – matched auf exakte Region + GLOBAL
-    asOfDate:  string   // ISO-Datum – schließt noch nicht gültige Policies aus
+    region:    string
+    asOfDate:  string
 }
 
 // ── Interner Zustand ──────────────────────────────────────────────────────────
@@ -40,6 +47,7 @@ interface Chunk {
 let chunks: Chunk[]         = []
 let activeConfig: RAGConfig = RAG_DEFAULT
 let openaiClient: OpenAI
+let cohereClient: CohereClient
 
 // ── Policy-Header parsen ──────────────────────────────────────────────────────
 function parseHeader(text: string): ChunkMetadata {
@@ -48,23 +56,18 @@ function parseHeader(text: string): ChunkMetadata {
 
     const header        = match[0]
     const effectiveFrom = header.match(/EFFECTIVE_FROM:\s*([\d-]+)/)?.[1] ?? ''
-
-    // REGION kann mehrere Werte haben: REGION: ME, EU
-    const regionRaw = header.match(/REGION:\s*([A-Z,\s]+?)(?:\]|$)/)?.[1] ?? 'GLOBAL'
-    const regions   = regionRaw.split(',').map(r => r.trim()).filter(Boolean)
+    const regionRaw     = header.match(/REGION:\s*([A-Z,\s]+?)(?:\]|$)/)?.[1] ?? 'GLOBAL'
+    const regions       = regionRaw.split(',').map(r => r.trim()).filter(Boolean)
 
     return { regions, effectiveFrom }
 }
 
 // ── Metadaten-Filter ──────────────────────────────────────────────────────────
 function matchesFilter(metadata: ChunkMetadata, filter: RetrievalFilter): boolean {
-    // GLOBAL-Policies gelten immer
-    // Regionsspezifische Policies gelten wenn die gesuchte Region in der Liste ist
     const regionMatch =
         metadata.regions.includes('GLOBAL') ||
         metadata.regions.includes(filter.region.toUpperCase())
 
-    // Policies die noch nicht in Kraft sind werden ausgeschlossen
     const dateMatch =
         metadata.effectiveFrom === '' ||
         metadata.effectiveFrom <= filter.asOfDate
@@ -86,12 +89,32 @@ function splitIntoChunks(text: string, chunkSize: number, chunkOverlap: number):
 }
 
 // ── Embedding ─────────────────────────────────────────────────────────────────
-async function embedBatch(texts: string[]): Promise<number[][]> {
-    const res = await openaiClient.embeddings.create({
-        model: activeConfig.embeddingModel,
-        input: texts,
-    })
-    return res.data.map(d => d.embedding)
+// inputType unterscheidet Ingestion ('search_document') von Query ('search_query')
+// Das ist ein Unterschied zu OpenAI der für die Arbeit dokumentiert werden sollte
+async function embedBatch(texts: string[], inputType: 'search_document' | 'search_query' = 'search_document'): Promise<number[][]> {
+    if (activeConfig.embeddingProvider === 'openai') {
+        const res = await openaiClient.embeddings.create({
+            model: activeConfig.embeddingModel,
+            input: texts,
+        })
+        return res.data.map(d => d.embedding)
+    }
+
+    if (activeConfig.embeddingProvider === 'cohere') {
+        const res = await cohereClient.embed({
+            texts,
+            model:     activeConfig.embeddingModel,
+            inputType: inputType,
+        })
+        // Cohere gibt embeddings als Float32Array zurück – in number[] konvertieren
+        const embeddings = res.embeddings
+        if (Array.isArray(embeddings)) {
+            return embeddings.map(e => Array.from(e as number[]))
+        }
+        throw new Error('Unerwartetes Cohere Embedding Format')
+    }
+
+    throw new Error(`Unbekannter embeddingProvider: ${activeConfig.embeddingProvider}`)
 }
 
 // ── Cosine Similarity ─────────────────────────────────────────────────────────
@@ -106,8 +129,9 @@ function cosineSimilarity(a: number[], b: number[]): number {
 export async function initRAG(config: RAGConfig = RAG_DEFAULT) {
     activeConfig = config
     openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    cohereClient = new CohereClient({ token: process.env.COHERE_API_KEY })
 
-    console.log(`Initializing RAG [model: ${config.embeddingModel}, chunkSize: ${config.chunkSize}, overlap: ${config.chunkOverlap}]`)
+    console.log(`Initializing RAG [provider: ${config.embeddingProvider}, model: ${config.embeddingModel}, chunkSize: ${config.chunkSize}, overlap: ${config.chunkOverlap}]`)
 
     const policyDir = join(process.cwd(), 'src/data/policy')
     const files     = readdirSync(policyDir)
@@ -122,7 +146,7 @@ export async function initRAG(config: RAGConfig = RAG_DEFAULT) {
         }
     }
 
-    const embeddings = await embedBatch(allChunks.map(c => c.text))
+    const embeddings = await embedBatch(allChunks.map(c => c.text), 'search_document')
 
     chunks = allChunks.map((c, i) => ({
         text:      c.text,
@@ -140,7 +164,7 @@ export async function retrieve(
     topK =   3,
     filter?: RetrievalFilter
 ): Promise<string[]> {
-    const [queryEmbedding] = await embedBatch([query])
+    const [queryEmbedding] = await embedBatch([query], 'search_query')
 
     const candidates = filter
         ? chunks.filter(c => matchesFilter(c.metadata, filter))
