@@ -1,8 +1,7 @@
-import { Mistral } from '@mistralai/mistralai'
 import type { LLMProvider, UnifiedChatRequest, UnifiedChatResponse, Message } from './types'
 
-const client = new Mistral({ apiKey: process.env.MISTRAL_API_KEY })
-
+// Direkter REST-Call statt Mistral SDK – umgeht den SDK-Bug mit tool-calling
+// in @mistralai/mistralai chat.complete() bei Tool-Results in der History
 export class MistralAdapter implements LLMProvider {
     getName() { return 'mistral' }
 
@@ -17,32 +16,45 @@ export class MistralAdapter implements LLMProvider {
                 parameters:  t.parameters
             }
         }))
-        console.log('MISTRAL MESSAGES:', JSON.stringify(messages, null, 2))
-        const res = await client.chat.complete({
-            model:    'mistral-small-latest',
+
+        const body: Record<string, unknown> = {
+            model:    'mistral-large-latest',
             messages,
-            tools: tools?.length ? tools : undefined
+        }
+        if (tools?.length) body.tools = tools
+
+        const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method:  'POST',
+            headers: {
+                'Content-Type':  'application/json',
+                'Authorization': `Bearer ${process.env.MISTRAL_API_KEY}`
+            },
+            body: JSON.stringify(body)
         })
 
-        const choice = res.choices?.[0]
-        const msg    = choice?.message
+        if (!res.ok) {
+            const err = await res.text()
+            throw new Error(`Mistral API error ${res.status}: ${err}`)
+        }
 
-        const hasToolCalls = (msg?.toolCalls?.length ?? 0) > 0
+        const data    = await res.json()
+        const choice  = data.choices?.[0]
+        const msg     = choice?.message
+        const hasToolCalls = (msg?.tool_calls?.length ?? 0) > 0
 
         return {
-            content:      msg?.content as string | null ?? null,
+            content:      msg?.content ?? null,
             finishReason: hasToolCalls ? 'tool_calls' : 'stop',
-            toolCalls:    hasToolCalls ? msg?.toolCalls?.map(tc => ({
+            toolCalls:    hasToolCalls ? msg.tool_calls.map((tc: any) => ({
                 id:        tc.id ?? `mistral-${Date.now()}`,
                 name:      tc.function.name,
                 arguments: typeof tc.function.arguments === 'string'
                     ? JSON.parse(tc.function.arguments)
-                    : tc.function.arguments as Record<string, unknown>
+                    : tc.function.arguments
             })) : undefined
         }
     }
 
-    // Mistral folgt dem OpenAI Message-Format – kein eigenes Mapping nötig
     private mapMessages(messages: Message[], systemPrompt?: string) {
         const result: any[] = []
 
@@ -59,8 +71,8 @@ export class MistralAdapter implements LLMProvider {
                 })
             } else if (m.role === 'assistant' && m.toolCalls) {
                 result.push({
-                    role:    'assistant',
-                    content: '',
+                    role:       'assistant',
+                    content:    '',
                     tool_calls: m.toolCalls.map(tc => ({
                         id:   tc.id,
                         type: 'function',
@@ -71,7 +83,6 @@ export class MistralAdapter implements LLMProvider {
                     }))
                 })
             } else {
-                // Nur hinzufügen wenn content nicht leer ist
                 if (m.content) {
                     result.push({ role: m.role, content: m.content })
                 }
