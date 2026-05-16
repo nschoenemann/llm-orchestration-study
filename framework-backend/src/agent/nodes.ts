@@ -103,7 +103,7 @@ export async function handleEscalationNode(state: AgentState): Promise<Partial<A
     )
 
     return {
-        messages: [new SystemMessage(
+        messages: [new HumanMessage(
             `SYSTEM: Frühwarn-Schwellenwert überschritten (${state.escalation_reason}). ` +
             `Relevante Eskalations-Policies: ${escalationChunks.join(' | ')}`
         )],

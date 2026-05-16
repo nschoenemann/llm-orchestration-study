@@ -7,6 +7,7 @@ import type { BaseChatModel }     from '@langchain/core/language_models/chat_mod
 import { retrieve }               from '../rag/ragChain'
 import { buildGraph }             from './graph'
 import { THRESHOLDS }             from '../config/thresholds'
+import { ChatMistralAI } from '@langchain/mistralai'
 
 export function getActiveModel(): BaseChatModel {
     const provider = process.env.LLM_PROVIDER ?? 'openai'
@@ -26,6 +27,11 @@ export function getActiveModel(): BaseChatModel {
                 model:      'gemini-3.1-pro-preview',
                 apiKey:     process.env.GEMINI_API_KEY,
                 maxRetries: 1
+            })
+        case 'mistral':
+            return new ChatMistralAI({
+                model:  'mistral-large-latest',
+                apiKey: process.env.MISTRAL_API_KEY
             })
         default:
             throw new Error(`Unknown provider: ${provider}`)

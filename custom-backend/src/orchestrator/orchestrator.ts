@@ -96,7 +96,7 @@ Wichtig:
 
     // ── 4. Conversation Loop ──────────────────────────────────────────────────
     for (let i = 0; i < MAX_ITERATIONS; i++) {
-
+        console.log('PRE-ESCALATION MESSAGES:', JSON.stringify(messages.slice(-3), null, 2))
         // 4a. LLM aufrufen via Provider Abstraction Layer
         const response = await provider.chat({ messages, tools, systemPrompt })
 
@@ -105,14 +105,14 @@ Wichtig:
             return response.content ?? 'Keine Antwort erhalten'
         }
 
-        // 4c. Assistant-Message mit Tool-Calls in History speichern
-        const assistantMessage: Message = {
-            role:      'assistant',
-            content:   response.content ?? '',
-            toolCalls: response.toolCalls
+        if (response.toolCalls?.length || response.content) {
+            const assistantMessage: Message = {
+                role:      'assistant',
+                content:   response.content ?? '',
+                toolCalls: response.toolCalls
+            }
+            messages.push(assistantMessage)
         }
-        messages.push(assistantMessage)
-
         // 4d. Tool-Calls ausführen
         for (const toolCall of response.toolCalls) {
             console.log(`Executing tool: ${toolCall.name}`, toolCall.arguments)

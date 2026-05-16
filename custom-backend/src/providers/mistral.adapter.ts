@@ -17,9 +17,9 @@ export class MistralAdapter implements LLMProvider {
                 parameters:  t.parameters
             }
         }))
-
+        console.log('MISTRAL MESSAGES:', JSON.stringify(messages, null, 2))
         const res = await client.chat.complete({
-            model:    'mistral-large-latest',
+            model:    'mistral-small-latest',
             messages,
             tools: tools?.length ? tools : undefined
         })
@@ -27,15 +27,18 @@ export class MistralAdapter implements LLMProvider {
         const choice = res.choices?.[0]
         const msg    = choice?.message
 
+        const hasToolCalls = (msg?.toolCalls?.length ?? 0) > 0
+
         return {
             content:      msg?.content as string | null ?? null,
-            finishReason: choice?.finishReason === 'tool_calls' ? 'tool_calls' : 'stop',
-            toolCalls:    msg?.toolCalls?.map(tc => ({
+            finishReason: hasToolCalls ? 'tool_calls' : 'stop',
+            toolCalls:    hasToolCalls ? msg?.toolCalls?.map(tc => ({
                 id:        tc.id ?? `mistral-${Date.now()}`,
                 name:      tc.function.name,
                 arguments: typeof tc.function.arguments === 'string'
                     ? JSON.parse(tc.function.arguments)
-                    : tc.function.arguments as Record<string, unknown>            }))
+                    : tc.function.arguments as Record<string, unknown>
+            })) : undefined
         }
     }
 
@@ -57,7 +60,7 @@ export class MistralAdapter implements LLMProvider {
             } else if (m.role === 'assistant' && m.toolCalls) {
                 result.push({
                     role:    'assistant',
-                    content: null,
+                    content: '',
                     tool_calls: m.toolCalls.map(tc => ({
                         id:   tc.id,
                         type: 'function',
@@ -68,7 +71,10 @@ export class MistralAdapter implements LLMProvider {
                     }))
                 })
             } else {
-                result.push({ role: m.role, content: m.content })
+                // Nur hinzufügen wenn content nicht leer ist
+                if (m.content) {
+                    result.push({ role: m.role, content: m.content })
+                }
             }
         }
 

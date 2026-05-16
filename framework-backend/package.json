@@ -16,6 +16,7 @@
     "@langchain/core": "^1.1.42",
     "@langchain/google-genai": "^2.1.29",
     "@langchain/langgraph": "^1.2.9",
+    "@langchain/mistralai": "^1.0.8",
     "@langchain/openai": "^1.4.5",
     "@langchain/textsplitters": "^1.0.1",
     "dotenv": "^17.4.2",
