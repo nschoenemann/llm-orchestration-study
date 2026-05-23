@@ -96,7 +96,6 @@ Wichtig:
 
     // ── 4. Conversation Loop ──────────────────────────────────────────────────
     for (let i = 0; i < MAX_ITERATIONS; i++) {
-        console.log('PRE-ESCALATION MESSAGES:', JSON.stringify(messages.slice(-3), null, 2))
         // 4a. LLM aufrufen via Provider Abstraction Layer
         const response = await provider.chat({ messages, tools, systemPrompt })
 

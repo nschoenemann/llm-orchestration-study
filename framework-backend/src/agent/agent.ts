@@ -2,19 +2,22 @@ import 'dotenv/config'
 import { ChatOpenAI }             from '@langchain/openai'
 import { ChatAnthropic }          from '@langchain/anthropic'
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
+import { ChatMistralAI }          from '@langchain/mistralai'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import type { BaseChatModel }     from '@langchain/core/language_models/chat_models'
 import { retrieve }               from '../rag/ragChain'
 import { buildGraph }             from './graph'
 import { THRESHOLDS }             from '../config/thresholds'
-import { ChatMistralAI } from '@langchain/mistralai'
 
 export function getActiveModel(): BaseChatModel {
     const provider = process.env.LLM_PROVIDER ?? 'openai'
     switch (provider) {
         case 'openai':
+            // Modell über OPENAI_MODEL env steuerbar – Standard: gpt-5.1
+            // Für Reasoning-Modell: OPENAI_MODEL=o3 LLM_PROVIDER=openai npx tsx src/cli.ts scenario-c
+            // LangChain abstrahiert den Unterschied zwischen Chat- und Reasoning-Modell intern
             return new ChatOpenAI({
-                model:  'gpt-4o',
+                model:  process.env.OPENAI_MODEL ?? 'gpt-5.1',
                 apiKey: process.env.OPENAI_API_KEY
             })
         case 'claude':
