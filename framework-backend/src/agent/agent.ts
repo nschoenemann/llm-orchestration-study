@@ -36,15 +36,25 @@ export async function runAgent(userMessage: string): Promise<string> {
 
     // ── 1. Provider & Graph vorbereiten ──────────────────────────────────────
     const model = getActiveModel()
-    const graph = buildGraph(model)
 
-    // ── 2. RAG: relevante Policy-Chunks laden & System-Prompt aufbauen ────────
+    // file_search als natives OpenAI-Tool über LangChain bindTools
+    // Das Modell entscheidet selbst wann es Policy-Dokumente durchsucht
+    const vectorStoreId = process.env.VECTOR_STORE_ID
+    const modelWithFileSearch = vectorStoreId && 'bindTools' in model
+        ? (model as any).bindTools([{
+            type: 'file_search',
+            vector_store_ids: [vectorStoreId],
+        }])
+        : model
+
+    const graph = buildGraph(modelWithFileSearch as any)
+
+    // ── 2. RAG: System-Prompt aufbauen ────────────────────────────────────────
+    // retrieve() gibt leere Liste zurück — OpenAI File Search übernimmt das Retrieval
     const ragChunks    = await retrieve(userMessage)
     const systemPrompt = `Du bist ein hilfreicher Flug-Assistent für Mitarbeiter.
 
-Relevante Richtlinien:
-${ragChunks.map(c => `- ${c}`).join('\n')}
-
+${ragChunks.length > 0 ? `Relevante Richtlinien:\n${ragChunks.map(c => `- ${c}`).join('\n')}\n` : ''}
 Beantworte Fragen präzise basierend auf den verfügbaren Tools und Richtlinien.
 
 Wichtig:

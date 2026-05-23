@@ -1,77 +1,95 @@
 import OpenAI from 'openai'
+import { getFileSearchTool } from '../rag/ragEngine'
 import type { LLMProvider, UnifiedChatRequest, UnifiedChatResponse, Message } from './types'
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
+const REASONING_MODELS = ['o3', 'o4-mini', 'o3-mini', 'o1']
+
+function isReasoningModel(model: string): boolean {
+    return REASONING_MODELS.some(m => model.startsWith(m))
+}
+
 export class OpenAIAdapter implements LLMProvider {
-    getName() { return 'openai' }
+    private model: string
+
+    constructor(model = 'gpt-5.1') {
+        this.model = model
+    }
+
+    getName() { return `openai/${this.model}` }
 
     async chat(req: UnifiedChatRequest): Promise<UnifiedChatResponse> {
-        const messages = this.mapMessages(req.messages, req.systemPrompt)
+        const reasoning = isReasoningModel(this.model)
 
-        const tools = req.tools?.map(t => ({
+        // Function Tools für eigene System-Tools
+        const functionTools = req.tools?.map(t => ({
             type: 'function' as const,
-            function: {
-                name: t.name,
-                description: t.description,
-                parameters: t.parameters
-            }
-        }))
+            name:        t.name,
+            description: t.description,
+            parameters:  t.parameters,
+        })) ?? []
 
-        const res = await client.chat.completions.create({
-            model: 'gpt-5.1',
-            messages,
-            tools: tools?.length ? tools : undefined
+        // file_search via Responses API — unterstützt beide Tool-Typen
+        const allTools = [
+            ...functionTools,
+            getFileSearchTool(),
+        ]
+
+        // Responses API nutzt 'input' statt 'messages' und 'instructions' statt 'system'
+        const input = this.mapMessages(req.messages)
+
+        const res = await (client as any).responses.create({
+            model:        this.model,
+            instructions: req.systemPrompt,
+            input,
+            tools:        allTools,
+            ...(reasoning ? { max_output_tokens: 4096 } : {})
         })
 
-        const choice = res.choices[0]
-        const msg = choice.message
+        // Responses API Response-Format auswerten
+        const output     = res.output ?? []
+        const textItem   = output.find((o: any) => o.type === 'message')
+        const content    = textItem?.content?.find((c: any) => c.type === 'output_text')?.text ?? null
+
+        // Function Tool Calls extrahieren
+        const toolCallItems = output.filter((o: any) => o.type === 'function_call')
+        const hasToolCalls  = toolCallItems.length > 0
 
         return {
-            content: msg.content,
-            finishReason: choice.finish_reason === 'tool_calls' ? 'tool_calls' : 'stop',
-            toolCalls: msg.tool_calls?.map(tc => {
-                if (tc.type !== 'function') throw new Error(`Unsupported tool type: ${tc.type}`)
-                return {
-                    id: tc.id,
-                    name: tc.function.name,
-                    arguments: JSON.parse(tc.function.arguments)
-                }
-            })
+            content,
+            finishReason: hasToolCalls ? 'tool_calls' : 'stop',
+            toolCalls: hasToolCalls ? toolCallItems.map((tc: any) => ({
+                id:        tc.call_id,
+                name:      tc.name,
+                arguments: typeof tc.arguments === 'string'
+                    ? JSON.parse(tc.arguments)
+                    : tc.arguments
+            })) : undefined
         }
     }
 
-    private mapMessages(messages: Message[], systemPrompt?: string) {
-        const result: any[] = []
-
-        if (systemPrompt) {
-            result.push({ role: 'system', content: systemPrompt })
-        }
-
-        for (const m of messages) {
+    private mapMessages(messages: Message[]) {
+        return messages.map(m => {
             if (m.role === 'tool') {
-                result.push({
-                    role: 'tool',
-                    tool_call_id: m.toolCallId!,
-                    content: m.content
-                })
+                return {
+                    type:        'function_call_output',
+                    call_id:     m.toolCallId!,
+                    output:      m.content,
+                }
             } else if (m.role === 'assistant' && m.toolCalls) {
-                result.push({
-                    role: 'assistant',
-                    content: null,
-                    tool_calls: m.toolCalls.map(tc => ({
-                        id: tc.id,
-                        type: 'function',
-                        function: {
-                            name: tc.name,
-                            arguments: JSON.stringify(tc.arguments)  // ← zurück zu String für History
-                        }
-                    }))
-                })
+                return m.toolCalls.map(tc => ({
+                    type:      'function_call',
+                    call_id:   tc.id,
+                    name:      tc.name,
+                    arguments: JSON.stringify(tc.arguments),
+                }))
             } else {
-                result.push({ role: m.role, content: m.content })
+                return {
+                    role:    m.role,
+                    content: m.content,
+                }
             }
-        }
-        return result
+        }).flat()
     }
 }
