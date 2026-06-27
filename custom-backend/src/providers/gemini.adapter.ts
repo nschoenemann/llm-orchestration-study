@@ -3,6 +3,32 @@ import type { LLMProvider, UnifiedChatRequest, UnifiedChatResponse, Message } fr
 
 const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 
+// Gemini-spezifischer Retry-Mechanismus für 503 Service Unavailable
+// Preview-Modelle haben eine höhere Instabilitätsrate als stabile Produktionsmodelle
+const MAX_RETRIES  = 3
+const RETRY_DELAY  = 2000 // ms
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            return await fn()
+        } catch (err: any) {
+            const is503 = err?.status === 503 ||
+                err?.message?.includes('503') ||
+                err?.message?.includes('Service Unavailable') ||
+                err?.message?.toLowerCase().includes('overloaded')
+
+            if (is503 && attempt < MAX_RETRIES) {
+                console.warn(`Gemini 503 – Retry ${attempt}/${MAX_RETRIES - 1} in ${RETRY_DELAY}ms...`)
+                await new Promise(res => setTimeout(res, RETRY_DELAY * attempt))
+                continue
+            }
+            throw err
+        }
+    }
+    throw new Error('Gemini: Max retries reached')
+}
+
 export class GeminiAdapter implements LLMProvider {
     getName() { return 'gemini' }
 
@@ -32,27 +58,31 @@ export class GeminiAdapter implements LLMProvider {
             }] as Tool[] : undefined
         })
 
-        const history = this.buildHistory(req.messages)
+        const history     = this.buildHistory(req.messages)
         const lastMessage = req.messages[req.messages.length - 1]
-        const chat = model.startChat({ history })
-        const res  = await chat.sendMessage(lastMessage.content)
+        const chat        = model.startChat({ history })
+
+        // Retry-Wrapper fängt 503-Fehler ab ohne den Orchestrator zu berühren
+        const res = await withRetry(() => chat.sendMessage(lastMessage.content))
+
         const candidate = res.response.candidates?.[0]
         const parts     = candidate?.content?.parts ?? []
         const part      = parts.find(p => p.functionCall) ?? parts[0]
+
         if (part?.functionCall) {
             return {
                 content: null,
                 finishReason: 'tool_calls',
                 toolCalls: [{
-                    id: `gemini-${Date.now()}`,   // ← Gemini hat keine Tool-Call-IDs!
-                    name: part.functionCall.name,
+                    id:        `gemini-${Date.now()}`,
+                    name:      part.functionCall.name,
                     arguments: part.functionCall.args as Record<string, unknown>
                 }]
             }
         }
 
         return {
-            content: res.response.text(),
+            content:      res.response.text(),
             finishReason: 'stop'
         }
     }
@@ -64,7 +94,7 @@ export class GeminiAdapter implements LLMProvider {
                     role: 'function' as const,
                     parts: [{
                         functionResponse: {
-                            name: m.toolCallId ?? 'unknown',
+                            name:     m.toolCallId ?? 'unknown',
                             response: { result: m.content }
                         }
                     }]
@@ -82,7 +112,7 @@ export class GeminiAdapter implements LLMProvider {
                 }
             }
             return {
-                role: m.role === 'assistant' ? 'model' as const : 'user' as const,
+                role:  m.role === 'assistant' ? 'model' as const : 'user' as const,
                 parts: [{ text: m.content }]
             }
         })
