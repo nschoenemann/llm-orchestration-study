@@ -29,7 +29,7 @@ export function getActiveModel(): BaseChatModel {
             return new ChatGoogleGenerativeAI({
                 model:      'gemini-3.1-pro-preview',
                 apiKey:     process.env.GEMINI_API_KEY,
-                maxRetries: 1
+                maxRetries: 0
             })
         case 'mistral':
             return new ChatMistralAI({

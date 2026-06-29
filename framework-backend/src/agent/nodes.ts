@@ -1,4 +1,5 @@
 import { SystemMessage, ToolMessage, HumanMessage } from '@langchain/core/messages'
+import { withRetry }                  from '../utils/retry'
 import { retrieve, RetrievalFilter }  from '../rag/ragChain'
 import { regions }                    from '../data/regionStore'
 import { logTool }                    from '../logger'
@@ -22,7 +23,8 @@ function getRegionFromRoute(route: unknown): string | undefined {
 
 // ── Node: LLM aufrufen ────────────────────────────────────────────────────────
 export async function callLLMNode(state: AgentState, model: any): Promise<Partial<AgentState>> {
-    const response = await model.invoke(state.messages)
+    // Retry-Wrapper fängt 503-Fehler ab ohne den Orchestrator zu berühren
+    const response = await withRetry(() => model.invoke(state.messages))
     return { messages: [response] }
 }
 
